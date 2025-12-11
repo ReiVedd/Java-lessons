@@ -4,7 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.Scanner;
+import java.util.*;
 
 
 import br.com.connection.CompromissoDAO;
@@ -24,6 +24,12 @@ public class Main {
     private static CompromissoDAO compromissoDAO = new CompromissoDAO();
     private static ContatoDAO contatoDAO = new ContatoDAO();
     private static TarefaDAO tarefaDAO = new TarefaDAO();
+
+    private static Stack<Contato>
+    lixeiraContatos = new Stack<>();
+
+    private static Queue<Tarefas>
+    filaTarefas = new LinkedList<>();
 
     public static void main(String[] args) {
         System.out.println("╔════════════════════════════════════════╗");
@@ -124,9 +130,18 @@ public class Main {
     }
     
     private static void removerCompromisso() {
-        try {
-            compromissoDAO.remover(lerInteiro("ID: "));
-        } catch (Exception e) { System.out.println("❌ " + e.getMessage()); }
+        int id = lerInteiro("ID do contato para remover: ");
+        try{
+            Contato c = contatoDAO.buscarPorId(id);
+            contatoDAO.remover(id);
+            lixeiraContatos.push(c);
+            System.out.println("✔️ Contato removido e enviado para a Lixeira Temporária.");
+            System.out.println("  (Use a opção 'Desfazer' para recuperar)");
+        } catch (ItemNaoEncontradoException e) {
+            System.out.println("❌ Contato não existe.");
+            } catch (DAOException e) {
+                System.out.println("❌ Erro ao remover: " + e.getMessage());
+        }
     }
     
     private static void listarCompromissosProximos() {
@@ -145,6 +160,7 @@ public class Main {
             System.out.println("4. Concluir Tarefa");
             System.out.println("5. Ver Tarefas Atrasadas");
             System.out.println("6. Remover Tarefa");
+            System.out.println("7. Modo Foco");
             System.out.println("0. Voltar");
             
             int opcao = lerInteiro("Escolha: ");
@@ -157,6 +173,7 @@ public class Main {
                     case 4 -> concluirTarefa();
                     case 5 -> listarTarefasAtrasadas();
                     case 6 -> removerTarefa();
+                    case 7 -> modoFocoTarefas();
                     case 0 -> { return; }
                     default -> System.out.println("❌ Opção inválida!");
                 }
@@ -243,6 +260,57 @@ public class Main {
         int id = lerInteiro("ID da tarefa a remover: ");
         tarefaDAO.remover(id);
     }
+
+    private static void modoFocoTarefas() {
+        System.out.println("\n=== 🧘 MODO FOCO ===");
+        List<Tarefas> listaDoBanco = tarefaDAO.listarAtivos();
+        filaTarefas.clear();
+
+        for (Tarefas t :  listaDoBanco){
+            filaTarefas.add(t);
+        }
+
+        if (filaTarefas.isEmpty()){
+            System.out.println("Você não tem tarefas pendentes. Vá descansar!");
+            return;
+        }
+        System.out.println("Você tem " + filaTarefas.size() + " tarefas na fila.");
+
+        while (!filaTarefas.isEmpty()) {
+            Tarefas atual = filaTarefas.peek();
+
+            System.out.println("\n--------------------------------");
+            System.out.println("👉 SUA TAREFA ATUAL: " + atual.getDescricao());
+            System.out.println("   (ID: " + atual.getId() + " )");
+            System.out.println("----------------------------------");
+
+            System.out.println("1. ✅ Concluir e ir para a próxima");
+            System.out.println("2. ⏭️ Pular para o final (Adiar)");
+            System.out.println("0. 🚪 Sair do Modo Foco");
+
+            int op = lerInteiro("Opção: ");
+
+            if (op == 0) break;
+
+            if (op == 1) {
+                Tarefas concluida = filaTarefas.poll();
+
+                try {
+                    concluida.setAtivo(false);
+                    concluida.setProgresso(100);
+                    tarefaDAO.atualizar(concluida);
+                    System.out.println("🎉 Tarefa concluíd! Próxima...");
+                } catch (Exception e) {
+                      System.out.println("Erro ao salvar: " + e.getMessage());
+                }
+            } else if (op == 2) {
+                Tarefas adiada = filaTarefas.poll();
+                filaTarefas.add(adiada);
+                System.out.println("💨 Tarefa adiada para o fim da fila.");
+            }
+        }
+    }
+
     private static void menuContatos() {
         while (true) {
             System.out.println("\n--- 👥 GERENCIAR CONTATOS ---");
@@ -251,6 +319,7 @@ public class Main {
             System.out.println("3. Buscar por ID");
             System.out.println("4. Buscar por Nome");
             System.out.println("5. Remover Contato");
+            System.out.println("6. Desfazer");
             System.out.println("0. Voltar");
             
             int opcao = lerInteiro("Escolha uma opção: ");
@@ -262,6 +331,7 @@ public class Main {
                     case 3 -> buscarContato();
                     case 4 -> buscarContatoPorNome();
                     case 5 -> removerContato();
+                    case 6 -> desfazerExclusaoContato();
                     case 0 -> { return; } 
                     default -> System.out.println("❌ Opção inválida!");
                 }
@@ -362,23 +432,45 @@ public class Main {
     private static void removerContato() {
         int id = lerInteiro("Digite o ID do contato para remover: ");
         try {
-            System.out.print("Tem certeza que deseja remover o ID " + id + "? (S/N): ");
-            String confirmacao = sc.nextLine();
-            
-            if (confirmacao.equalsIgnoreCase("S")) {
-                contatoDAO.remover(id);
-            } else {
-                System.out.println("Operação cancelada.");
-            }
+            Contato c = contatoDAO.buscarPorId(id);
+            lixeiraContatos.push(c);
+            System.out.println("Contato " + c.getNome() + " guardado na memória");
+            contatoDAO.remover(id);
+            System.out.println("✔️ Contato removido do banco e enviado para a lixeira");
+            System.out.println("   (Use a opção 'Desfazer' no menu  para trazê-lo de volta)");
+        } catch (ItemNaoEncontradoException e)  {
+            System.out.println("❌ Contato não encontrado. Nada foi apagado");
         } catch (DAOException e) {
-            System.out.println("❌ Erro ao remover: " + e.getMessage());
+            System.out.println("❌ Erro ao remover do banco: " + e.getMessage());
+            if (!lixeiraContatos.isEmpty() && lixeiraContatos.peek().getId() == id) {
+                lixeiraContatos.pop();
+            }
+        }
+
+    }
+
+    private static void desfazerExclusaoContato() {
+        System.out.println("\n=== ↩️ DESFAZER EXCLUSÃO ===");
+
+        if (lixeiraContatos.isEmpty()) {
+            System.out.println("📭 A lixeira está vazia! Nada para recuperar.");
+            return;
+        }
+        Contato recuperado = lixeiraContatos.pop();
+
+        try {
+            contatoDAO.salvar(recuperado);
+            System.out.println("O contato '" + recuperado.getNome() + "' foi restaurado.");
+        } catch (DAOException e) {
+            System.out.println("Erro ao restaurar: " + e.getMessage());
+            lixeiraContatos.push(recuperado);
         }
     }
 
     
     private static void exibirResumo() {
         System.out.println("\n╔════════════════════════════════════════╗");
-        System.out.println("║          RESUMO DA AGENDA             ║");
+        System.out.println("║          RESUMO DA AGENDA              ║");
         System.out.println("╚════════════════════════════════════════╝");
         
  
